@@ -57,24 +57,6 @@ Here are the subdirectories:
 
 Please read the [evm README] for more details.
 
-### Solana
-
-We have put tgoether the Solana directory assuming a program structure similar
-to how `anchor init` creates your environment. Because of this, all of these
-programs are written assuming the [Anchor] framework. Here are the
-subdirectories:
-
-- `dependencies` - Wormhole-related artifacts live here (built from the
-  [Wormhole] repo).
-- `modules` - Work-in-progress modules that will eventually become dependencies
-  that exist as a `cargo` library.
-- `programs` - Program source code, separated by each example (enumerated).
-- `shell-scripts` - Useful shell scripts.
-- `ts` - Web3 SDK and scripts written in Typescript ([TS-Mocha]) to interact
-  with programs loaded in a Solana local validator run with `anchor test`.
-
-Please read the [Solana README] for more details.
-
 ## Issues
 
 These are the different categories of issues that exist in this repository.
