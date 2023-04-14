@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {IWormhole} from "../interfaces/IWormhole.sol";
+import {IWormholeReceiver} from "../interfaces/IWormholeReceiver.sol";
 import "../libraries/BytesLib.sol";
 
 import "./HelloWorldGetters.sol";
@@ -12,7 +13,7 @@ import "./HelloWorldMessages.sol";
  * @notice This contract uses Wormhole's generic-messaging to send an arbitrary
  * HelloWorld message to registered emitters on foreign blockchains
  */
-contract HelloWorld is HelloWorldGetters, HelloWorldMessages {
+contract HelloWorld is HelloWorldGetters, HelloWorldMessages, IWormholeReceiver {
     using BytesLib for bytes;
 
     /**
@@ -43,14 +44,9 @@ contract HelloWorld is HelloWorldGetters, HelloWorldMessages {
      * @param helloWorldMessage Arbitrary HelloWorld string
      * @return messageSequence Wormhole message sequence for this contract
      */
-    function sendMessage(
-        string memory helloWorldMessage
-    ) public payable returns (uint64 messageSequence) {
+    function sendMessage(string memory helloWorldMessage) public payable returns (uint64 messageSequence) {
         // enforce a max size for the arbitrary message
-        require(
-            abi.encodePacked(helloWorldMessage).length < type(uint16).max,
-            "message too large"
-        );
+        require(abi.encodePacked(helloWorldMessage).length < type(uint16).max, "message too large");
 
         // cache Wormhole instance and fees to save on gas
         IWormhole wormhole = wormhole();
@@ -61,10 +57,7 @@ contract HelloWorld is HelloWorldGetters, HelloWorldMessages {
         require(msg.value == wormholeFee, "insufficient value");
 
         // create the HelloWorldMessage struct
-        HelloWorldMessage memory parsedMessage = HelloWorldMessage({
-            payloadID: uint8(1),
-            message: helloWorldMessage
-        });
+        HelloWorldMessage memory parsedMessage = HelloWorldMessage({payloadID: uint8(1), message: helloWorldMessage});
 
         // encode the HelloWorldMessage struct into bytes
         bytes memory encodedMessage = encodeMessage(parsedMessage);
@@ -78,6 +71,7 @@ contract HelloWorld is HelloWorldGetters, HelloWorldMessages {
         );
     }
 
+
     /**
      * @notice Consumes arbitrary HelloWorld messages sent by registered emitters
      * @dev The arbitrary message is verified by the Wormhole core endpoint
@@ -86,27 +80,14 @@ contract HelloWorld is HelloWorldGetters, HelloWorldMessages {
      * - `encodedMessage` is not attested by the Wormhole network
      * - `encodedMessage` was sent by an unregistered emitter
      * - `encodedMessage` was consumed already
-     * @param encodedMessage verified Wormhole message containing arbitrary
+     * @param deliveryData verified Wormhole message containing arbitrary
      * HelloWorld message.
      */
-    function receiveMessage(bytes memory encodedMessage) public {
-        // call the Wormhole core contract to parse and verify the encodedMessage
-        (
-            IWormhole.VM memory wormholeMessage,
-            bool valid,
-            string memory reason
-        ) = wormhole().parseAndVerifyVM(encodedMessage);
-
-        // confirm that the Wormhole core contract verified the message
-        require(valid, reason);
-
-        // verify that this message was emitted by a registered emitter
-        require(verifyEmitter(wormholeMessage), "unknown emitter");
+    function receiveWormholeMessages(DeliveryData memory deliveryData, bytes[] memory) external payable {
+        require(verifyEmitter(deliveryData), "unknown emitter");
 
         // decode the message payload into the HelloWorldMessage struct
-        HelloWorldMessage memory parsedMessage = decodeMessage(
-            wormholeMessage.payload
-        );
+        HelloWorldMessage memory parsedMessage = decodeMessage(deliveryData.payload);
 
         /**
          * Check to see if this message has been consumed already. If not,
@@ -114,9 +95,9 @@ contract HelloWorld is HelloWorldGetters, HelloWorldMessages {
          *
          * This check can protect against replay attacks in xDapps where messages are
          * only meant to be consumed once.
-        */
-        require(!isMessageConsumed(wormholeMessage.hash), "message already consumed");
-        consumeMessage(wormholeMessage.hash, parsedMessage.message);
+         */
+        require(!isMessageConsumed(deliveryData.deliveryHash), "message already consumed");
+        consumeMessage(deliveryData.deliveryHash, parsedMessage.message);
     }
 
     /**
@@ -127,28 +108,19 @@ contract HelloWorld is HelloWorldGetters, HelloWorldMessages {
      * @param emitterAddress 32-byte address of the contract being registered. For EVM
      * contracts the first 12 bytes should be zeros.
      */
-    function registerEmitter(
-        uint16 emitterChainId,
-        bytes32 emitterAddress
-    ) public onlyOwner {
+    function registerEmitter(uint16 emitterChainId, bytes32 emitterAddress) public onlyOwner {
         // sanity check the emitterChainId and emitterAddress input values
-        require(
-            emitterChainId != 0 && emitterChainId != chainId(),
-            "emitterChainId cannot equal 0 or this chainId"
-        );
-        require(
-            emitterAddress != bytes32(0),
-            "emitterAddress cannot equal bytes32(0)"
-        );
+        require(emitterChainId != 0 && emitterChainId != chainId(), "emitterChainId cannot equal 0 or this chainId");
+        require(emitterAddress != bytes32(0), "emitterAddress cannot equal bytes32(0)");
 
         // update the registeredEmitters state variable
         setEmitter(emitterChainId, emitterAddress);
     }
 
-    function verifyEmitter(IWormhole.VM memory vm) internal view returns (bool) {
+    function verifyEmitter(DeliveryData memory deliveryData) internal view returns (bool) {
         // Verify that the sender of the Wormhole message is a trusted
         // HelloWorld contract.
-        return getRegisteredEmitter(vm.emitterChainId) == vm.emitterAddress;
+        return getRegisteredEmitter(deliveryData.sourceChain) == deliveryData.sourceAddress;
     }
 
     modifier onlyOwner() {
